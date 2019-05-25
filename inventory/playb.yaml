@@ -1,0 +1,54 @@
+---
+ - hosts: localhost
+   connection: local
+   gather_facts: false
+   tasks:
+     - name: install latest boto3
+       pip:
+         name: "{{ item }}"
+       with_items:
+         - boto3
+         - botocore
+       #delegate_to: "{{ ec2_instance_ip }}"
+
+     - name: get my current ip address
+       uri:
+         url: http://checkip.amazonaws.com
+         return_content: yes
+       register: my_ip
+
+     - name: create a simple security group
+       ec2_group:
+         name: webservers
+         description: A security group for my current IP ADDRESS
+         region: ap-south-1
+         rules:
+           - proto: tcp
+             from_port: 80
+             to_port: 80
+             cidr_ip: "{{ my_ip.content | replace('\n', '') }}/32"
+           - proto: tcp
+             from_port: 22
+             to_port: 22
+             cidr_ip: "{{ my_ip.content | replace('\n', '') }}/32"
+         rules_egress:
+           - proto: tcp
+             from_port: 80
+             to_port: 80
+             cidr_ip: 0.0.0.0/0
+       register: webservers_group
+
+     - name: Create the ELB only listening over port 80
+       ec2_elb_lb:
+         name: ravitz-load-balancer
+         state: present
+         region: ap-south-1
+         zones:
+           - ap-south-1a
+           - ap-south-1b
+         listeners:
+           - protocol: http
+             load_balancer_port: 80
+             instance_port: 80
+       register: elb
+
