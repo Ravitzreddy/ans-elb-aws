@@ -52,3 +52,52 @@
              instance_port: 80
        register: elb
 
+     - name: spin two ec2 instances
+       ec2:
+         key_name: myprimeadmkeypair
+         instance_type: t2.micro
+         image: ami-5b673c34
+         region: ap-south-1
+         group_id:
+           - "{{ webservers_group.group_id }}"
+           - "{{ elb.elb.security_group_ids | first }}"
+         wait: yes
+         instance_tags: 
+           application: ravitz
+         count: 2
+         count_tag: 
+           application: ravitz
+       register: ec2_inst
+
+     - name: Store EC2 instance IPs to a provision against
+       add_host:
+         host_name: "{{ item.public_ip }}"
+         groupname: ec2_instance_ips
+         debug:
+          msg: "{{ ec2_instance_ips.group_id }}" 
+       with_items: "{{ ec2_inst.tagged_instances }}"
+
+
+     - name: wait for server to come online
+       wait_for:
+         host: "{{ item.public_ip }}"
+         port: 22
+         timeout: 180
+       with_items: "{{ ec2_inst.tagged_instances }}"
+
+     - name: Add ec2 instances to known hosts
+       known_hosts:
+         name: "{{ item.public_ip }}"
+         key: "{{ lookup('pipe', ssh-keyscan -t rsa ' + item.public_ip) }}"
+       with_items: "{{ ec2_inst.tagged_instances }}"
+
+
+ - hosts: ec2_instance_ips
+   remote_user: ec2-user
+   become: True
+   tasks:
+     - name: install httpd
+       yum:
+         name: httpd
+         state: present
+        
